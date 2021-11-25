@@ -10,24 +10,15 @@ class Example(QWidget):
         self.initUI()
 
     def initUI(self):
-        # Зададим тип базы данных
         db = QSqlDatabase.addDatabase('QSQLITE')
-        # Укажем имя базы данных
         db.setDatabaseName('coffee.db')
-        # И откроем подключение
         db.open()
 
-        # QTableView - виджет для отображения данных из базы
         view = QTableView(self)
-        # Создадим объект QSqlTableModel,
-        # зададим таблицу, с которой он будет работать,
-        #  и выберем все данные
         model = QSqlTableModel(self, db)
         model.setTable('coffee')
         model.select()
 
-        # Для отображения данных на виджете
-        # свяжем его и нашу модель данных
         view.setModel(model)
         view.move(10, 10)
         view.resize(617, 315)
