@@ -1,30 +1,28 @@
 import sys
+import sqlite3
 
-from PyQt5.QtSql import QSqlDatabase, QSqlTableModel
-from PyQt5.QtWidgets import QWidget, QTableView, QApplication
+from PyQt5.QtWidgets import QWidget, QTableView, QApplication, QTableWidgetItem
+from PyQt5 import uic
 
 
 class Example(QWidget):
     def __init__(self):
         super().__init__()
-        self.initUI()
+        uic.loadUi('main.ui', self)
 
-    def initUI(self):
-        db = QSqlDatabase.addDatabase('QSQLITE')
-        db.setDatabaseName('coffee.db')
-        db.open()
+        self.connection = sqlite3.connect("coffee.db")
+        res = self.connection.cursor().execute("SELECT * FROM coffee").fetchall()
+        self.tableWidget.setColumnCount(7)
+        self.tableWidget.setRowCount(0)
+        for i, row in enumerate(res):
+            self.tableWidget.setRowCount(
+                self.tableWidget.rowCount() + 1)
+            for j, elem in enumerate(row):
+                self.tableWidget.setItem(
+                    i, j, QTableWidgetItem(str(elem)))
 
-        view = QTableView(self)
-        model = QSqlTableModel(self, db)
-        model.setTable('coffee')
-        model.select()
-
-        view.setModel(model)
-        view.move(10, 10)
-        view.resize(617, 315)
-
-        self.setGeometry(300, 100, 700, 450)
-        self.setWindowTitle('Эспрессо')
+    def closeEvent(self, event):
+        self.connection.close()
 
 
 if __name__ == '__main__':
