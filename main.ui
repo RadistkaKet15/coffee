@@ -13,13 +13,13 @@
   <property name="windowTitle">
    <string>Эспрессо</string>
   </property>
-  <widget class="QTableView" name="tableView">
+  <widget class="QTableWidget" name="tableWidget">
    <property name="geometry">
     <rect>
-     <x>55</x>
+     <x>60</x>
      <y>30</y>
-     <width>711</width>
-     <height>361</height>
+     <width>681</width>
+     <height>371</height>
     </rect>
    </property>
   </widget>
