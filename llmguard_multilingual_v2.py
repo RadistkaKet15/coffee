@@ -40,7 +40,7 @@ class Pipeline:
             priority: int = 0
 
         # Initialize
-        self.valves = Valves(
+        self.valves = self.Valves(
             **{
                 "pipelines": ["*"],  # Connect to all pipelines
             }
