@@ -26,7 +26,7 @@ class Pipeline:
         # The identifier must be unique across all pipelines.
         # The identifier must be an alphanumeric string that can include underscores or hyphens. It cannot contain spaces, special characters, slashes, or backslashes.
         self.id = "llmguard_multilingual_v2"
-        self.name = "LLMGuard Prompt Injection Filter"
+        self.name = "LLMguard Multilingual v2"
 
         class Valves(BaseModel):
             # List target pipeline ids (models) that this filter will be connected to.
