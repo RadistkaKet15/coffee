@@ -25,8 +25,8 @@ class Pipeline:
         # Assign a unique identifier to the pipeline.
         # The identifier must be unique across all pipelines.
         # The identifier must be an alphanumeric string that can include underscores or hyphens. It cannot contain spaces, special characters, slashes, or backslashes.
-        self.id = "llmguard_multilingual_v2"
-        self.name = "LLMguard Multilingual v2"
+        self.id = "llmguard_prompt_injection_filter_pipeline"
+        self.name = "LLMGuard Prompt Injection Filter"
 
         class Valves(BaseModel):
             # List target pipeline ids (models) that this filter will be connected to.
@@ -40,7 +40,7 @@ class Pipeline:
             priority: int = 0
 
         # Initialize
-        self.valves = self.Valves(
+        self.valves = Valves(
             **{
                 "pipelines": ["*"],  # Connect to all pipelines
             }
@@ -54,7 +54,7 @@ class Pipeline:
         # This function is called when the server is started.
         print(f"on_startup:{__name__}")
         model_name = "bert-base-multilingual-cased"
-        self.model = PromptInjection(threshold=0.5, match_type=MatchType.FULL, model=model_name, use_onnx=False)
+        self.model = PromptInjection(threshold=0.8, match_type=MatchType.FULL, model=model_name, use_onnx=False)
         pass
 
     async def on_shutdown(self):
@@ -75,7 +75,7 @@ class Pipeline:
         # Filter out prompt injection messages
         sanitized_prompt, is_valid, risk_score = self.model.scan(user_message)
 
-        if risk_score > 0.8:
+        if risk_score > 0.8: 
             raise Exception("Prompt injection detected")
 
         return body
