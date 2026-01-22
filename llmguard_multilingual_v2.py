@@ -53,8 +53,8 @@ class Pipeline:
     async def on_startup(self):
         # This function is called when the server is started.
         print(f"on_startup:{__name__}")
-        model_name = "bert-base-multilingual-cased"
-        self.model = PromptInjection(threshold=0.8, match_type=MatchType.FULL, model=model_name, use_onnx=False)
+
+        self.model = PromptInjection(threshold=0.8, match_type=MatchType.FULL, use_onnx=True, onnx_model="microsoft/deberta-v3-base-injection")
         pass
 
     async def on_shutdown(self):
