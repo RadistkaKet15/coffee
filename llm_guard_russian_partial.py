@@ -62,8 +62,7 @@ class Pipeline:
             
             self.model = PromptInjection(
                 threshold=self.valves.threshold,
-                match_type=MatchType.PARTIAL,
-                model="bert-base-multilingual-cased",  # Мультиязычная модель
+                match_type=MatchType.PARTIAL,  
                 use_onnx=False  # Обязательно False для кастомных моделей
             )
             
