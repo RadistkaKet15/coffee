@@ -63,7 +63,7 @@ class Pipeline:
             self.model = PromptInjection(
                 threshold=self.valves.threshold,
                 match_type=MatchType.PARTIAL,  
-                use_onnx=False  # Обязательно False для кастомных моделей
+                use_onnx=True  # Обязательно False для кастомных моделей
             )
             
             print("✅ Мультиязычная модель успешно загружена!")
