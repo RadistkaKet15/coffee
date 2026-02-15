@@ -307,10 +307,3 @@ class Pipeline:
         print("="*60 + "\n")
         return body
 
-    async def on_shutdown(self):
-        """Очистка при выключении"""
-        if self.model:
-            del self.model
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            print("🧹 Модель выгружена")
