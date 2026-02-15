@@ -2,9 +2,9 @@
 title: Prompt Injection Detection Filter Offline
 author: open-webui
 date: 2024-11-20
-version: 3.2
+version: 3.3
 license: MIT
-description: Offline pipeline for detecting prompt injections with chunking and proper blocking
+description: Offline pipeline for detecting prompt injections with chunking and sentence-level detection
 requirements: transformers>=4.35.0, torch>=2.0.0
 """
 
@@ -23,17 +23,18 @@ class Pipeline:
     class Valves(BaseModel):
         pipelines: List[str] = ["*"]
         priority: int = 0
-        threshold: float = 0.5  # Снижен порог для лучшей чувствительности
+        threshold: float = 0.3  # Еще снизил порог
         enable_filtering: bool = True
         chunk_size: int = 256
         chunk_overlap: int = 50
         max_chunks: int = 10
-        block_on_detection: bool = True  # Явный флаг для блокировки
+        block_on_detection: bool = True
+        check_sentences: bool = True  # Проверять отдельные предложения
 
     def __init__(self):
         self.type = "filter"
-        self.id = "prompt_injection_detector_chunkfix"
-        self.name = "Prompt Injection Detector chunkfix"
+        self.id = "prompt_injection_detector"
+        self.name = "Prompt Injection Detector"
         
         self.valves = self.Valves()
         
@@ -65,6 +66,20 @@ class Pipeline:
         except Exception as e:
             print(f"❌ Failed to load model: {e}")
             self.model_loaded = False
+
+    def split_into_sentences(self, text: str) -> List[str]:
+        """Разбивает текст на предложения"""
+        # Регулярка для разбиения на предложения
+        sentence_endings = r'(?<=[.!?])\s+(?=[А-ЯA-Z])'
+        sentences = re.split(sentence_endings, text)
+        
+        # Дополнительно разбиваем по переносам строк
+        result = []
+        for sent in sentences:
+            parts = sent.split('\n')
+            result.extend([p.strip() for p in parts if p.strip()])
+        
+        return result
 
     def split_into_chunks(self, text: str) -> List[str]:
         """
@@ -103,23 +118,6 @@ class Pipeline:
         
         return chunks
 
-    def find_suspicious_sentences(self, text: str, threshold: float) -> List[tuple]:
-        """
-        Находит подозрительные предложения в тексте
-        """
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        suspicious = []
-        
-        for sentence in sentences:
-            if not sentence.strip():
-                continue
-                
-            _, risk_score = self.predict_single(sentence)
-            if risk_score > threshold:
-                suspicious.append((sentence, risk_score))
-        
-        return suspicious
-
     def predict_single(self, text: str):
         """
         Предсказание для одного текста
@@ -148,56 +146,83 @@ class Pipeline:
 
     def predict_chunked(self, text: str):
         """
-        Предсказание с разбиением на чанки
-        Возвращает: (is_safe, max_risk, suspicious_chunks, suspicious_sentences)
+        Предсказание с разбиением на чанки и предложения
+        Возвращает: (is_safe, max_risk, all_suspicious_items)
         """
         if not self.model_loaded:
             print("⚠️ Модель не загружена, пропускаем проверку")
-            return True, 0.0, [], []
+            return True, 0.0, []
         
         print(f"\n🔍 Анализ текста длиной {len(text)} символов")
         
-        # Проверяем весь текст целиком
-        _, risk_score_whole = self.predict_single(text)
-        max_risk = risk_score_whole
+        all_risks = []
+        suspicious_items = []
         
-        print(f"  Весь текст: риск {max_risk:.2%}")
+        # 1. Проверяем весь текст целиком
+        _, risk_whole = self.predict_single(text)
+        all_risks.append(("весь текст", risk_whole))
+        print(f"  Весь текст: риск {risk_whole:.2%}")
         
-        # Разбиваем на чанки и проверяем каждый
+        if risk_whole > self.valves.threshold:
+            suspicious_items.append({
+                "type": "full_text",
+                "risk": risk_whole,
+                "text": text[:200] + "..." if len(text) > 200 else text
+            })
+        
+        # 2. Проверяем по предложениям (самое важное!)
+        if self.valves.check_sentences:
+            sentences = self.split_into_sentences(text)
+            print(f"  Разбито на {len(sentences)} предложений")
+            
+            for i, sentence in enumerate(sentences):
+                if len(sentence) < 10:  # Пропускаем слишком короткие
+                    continue
+                    
+                _, risk_sent = self.predict_single(sentence)
+                all_risks.append((f"предложение {i+1}", risk_sent))
+                
+                if risk_sent > self.valves.threshold * 0.8:  # Чуть ниже порога для логирования
+                    print(f"    Предложение {i+1}: риск {risk_sent:.2%} - {sentence[:100]}...")
+                
+                if risk_sent > self.valves.threshold:
+                    suspicious_items.append({
+                        "type": "sentence",
+                        "index": i,
+                        "risk": risk_sent,
+                        "text": sentence
+                    })
+        
+        # 3. Проверяем по чанкам
         chunks = self.split_into_chunks(text)
-        print(f"  Разбито на {len(chunks)} чанков")
-        
-        suspicious_chunks = []
-        
-        for i, chunk in enumerate(chunks):
-            _, chunk_risk = self.predict_single(chunk)
-            print(f"    Чанк {i+1}: риск {chunk_risk:.2%}")
+        if len(chunks) > 1:  # Если текст действительно длинный
+            print(f"  Разбито на {len(chunks)} чанков")
             
-            max_risk = max(max_risk, chunk_risk)
-            
-            if chunk_risk > self.valves.threshold:
-                suspicious_chunks.append({
-                    "chunk_index": i,
-                    "risk": chunk_risk,
-                    "text": chunk[:150] + "..." if len(chunk) > 150 else chunk
-                })
-                print(f"    ⚠️ Подозрительный чанк {i+1} (риск {chunk_risk:.1%})")
-            
-            # Ранний выход если риск слишком высокий
-            if max_risk > 0.95:
-                print(f"  ⚠️ Очень высокий риск {max_risk:.1%}, прерываем проверку")
-                break
+            for i, chunk in enumerate(chunks):
+                _, risk_chunk = self.predict_single(chunk)
+                all_risks.append((f"чанк {i+1}", risk_chunk))
+                
+                if risk_chunk > self.valves.threshold:
+                    suspicious_items.append({
+                        "type": "chunk",
+                        "index": i,
+                        "risk": risk_chunk,
+                        "text": chunk[:200] + "..." if len(chunk) > 200 else chunk
+                    })
         
-        # Ищем подозрительные предложения
-        suspicious_sentences = self.find_suspicious_sentences(text, self.valves.threshold * 0.8)
+        # Находим максимальный риск
+        max_risk_item = max(all_risks, key=lambda x: x[1])
+        max_risk = max_risk_item[1]
+        
+        print(f"\n  Максимальный риск: {max_risk:.2%} (в {max_risk_item[0]})")
         
         # Определяем безопасность: если max_risk >= threshold - НЕ безопасно
         is_safe = max_risk < self.valves.threshold
         
-        print(f"\n  Результат: is_safe={is_safe}, max_risk={max_risk:.2%}, threshold={self.valves.threshold:.0%}")
-        print(f"  Подозрительных чанков: {len(suspicious_chunks)}, предложений: {len(suspicious_sentences)}")
+        print(f"  Результат: is_safe={is_safe}, max_risk={max_risk:.2%}, threshold={self.valves.threshold:.0%}")
+        print(f"  Подозрительных элементов: {len(suspicious_items)}")
         
-        return is_safe, max_risk, suspicious_chunks, suspicious_sentences
+        return is_safe, max_risk, suspicious_items
 
     async def inlet(self, body: dict, user: Optional[dict] = None) -> dict:
         """
@@ -235,7 +260,7 @@ class Pipeline:
         print(f"📝 Сообщение от пользователя: {user_message[:200]}..." if len(user_message) > 200 else f"📝 Сообщение: {user_message}")
         
         # Проверяем сообщение
-        is_safe, max_risk, suspicious_chunks, suspicious_sentences = self.predict_chunked(user_message)
+        is_safe, max_risk, suspicious_items = self.predict_chunked(user_message)
         
         # Логируем результат
         print(f"\n📊 ИТОГОВЫЙ РЕЗУЛЬТАТ:")
@@ -243,33 +268,20 @@ class Pipeline:
         print(f"  Макс. риск: {max_risk:.2%}")
         print(f"  Порог: {self.valves.threshold:.0%}")
         
-        if suspicious_chunks:
-            print(f"  Подозрительные чанки: {len(suspicious_chunks)}")
-            for chunk in suspicious_chunks:
-                print(f"    • Чанк {chunk['chunk_index']+1}: риск {chunk['risk']:.1%}")
-                print(f"      Текст: {chunk['text']}")
-        
-        if suspicious_sentences:
-            print(f"  Подозрительные предложения: {len(suspicious_sentences)}")
-            for sent, risk in suspicious_sentences[:3]:
-                sent_short = sent[:100] + "..." if len(sent) > 100 else sent
-                print(f"    • Риск {risk:.1%}: {sent_short}")
+        if suspicious_items:
+            print(f"  Найдено подозрительных элементов: {len(suspicious_items)}")
+            for item in suspicious_items:
+                print(f"    • {item['type']} (риск {item['risk']:.1%}): {item['text'][:150]}...")
         
         # БЛОКИРУЕМ если не безопасно
         if not is_safe and self.valves.block_on_detection:
             error_msg = f"🚫 ЗАПРОС ЗАБЛОКИРОВАН: Обнаружена prompt injection\n"
             error_msg += f"Максимальный риск: {max_risk:.1%} (порог: {self.valves.threshold:.0%})\n"
             
-            if suspicious_chunks:
-                error_msg += f"\nПодозрительные фрагменты ({len(suspicious_chunks)}):\n"
-                for chunk in suspicious_chunks[:3]:
-                    error_msg += f"  • Риск {chunk['risk']:.1%}: {chunk['text']}\n"
-            
-            if suspicious_sentences:
-                error_msg += f"\nПодозрительные предложения ({len(suspicious_sentences)}):\n"
-                for sent, risk in suspicious_sentences[:3]:
-                    sent_short = sent[:150] + "..." if len(sent) > 150 else sent
-                    error_msg += f"  • Риск {risk:.1%}: {sent_short}\n"
+            if suspicious_items:
+                error_msg += f"\nОбнаруженные подозрительные элементы:\n"
+                for item in suspicious_items[:5]:  # Показываем первые 5
+                    error_msg += f"  • {item['type']} (риск {item['risk']:.1%}): {item['text'][:200]}\n"
             
             print(f"\n❌ {error_msg}")
             print("="*60)
@@ -291,9 +303,7 @@ class Pipeline:
             "max_risk": max_risk,
             "threshold": self.valves.threshold,
             "is_safe": is_safe,
-            "chunks_checked": len(self.split_into_chunks(user_message)),
-            "suspicious_chunks": len(suspicious_chunks),
-            "suspicious_sentences": len(suspicious_sentences)
+            "suspicious_items": len(suspicious_items)
         }
         
         print("="*60 + "\n")
