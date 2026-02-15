@@ -33,8 +33,8 @@ class Pipeline:
 
     def __init__(self):
         self.type = "filter"
-        self.id = "prompt_injection_detector"
-        self.name = "Prompt Injection Detector"
+        self.id = "prompt_injection_detector 2"
+        self.name = "Prompt Injection Detector 2"
         
         self.valves = self.Valves()
         
